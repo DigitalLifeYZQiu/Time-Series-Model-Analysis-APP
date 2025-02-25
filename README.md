@@ -1,4 +1,4 @@
-# Time-Series-Model-Analysis_APP
+# Time-Series-Model-Analysis-APP
 
 This is a hosted demo for time series model analysis.
 
