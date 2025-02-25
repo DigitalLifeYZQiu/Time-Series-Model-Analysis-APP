@@ -310,5 +310,54 @@ class Exp_Large_Few_Shot_Roll_Demo(Exp_Basic):
             #     attn_map(attn, os.path.join(folder_path, f'attn.pdf'))
 
             return folder_path
-
+    
+    def fast_inference(self, data: ndarray, pred_len: int = 96) -> str:
+        # 以该函数被调用的时间为准，创建一个文件夹
+        folder_path = './inference_results/' + datetime.now().strftime("%Y%m%d_%H%M%S%f") + '/'
+        if not os.path.exists(folder_path):
+            os.makedirs(folder_path)
+        
+        # print('Model parameters: ', sum(param.numel() for param in self.model.parameters()))
+        # 存储一个data的副本
+        # original_data = data.copy() # [seq_len, 1]
+        # import pdb
+        # pdb.set_trace()
+        
+        patch_len = self.args.patch_len
+        # data的形状为[L, 1]，将L补齐到patch_len的整数倍
+        seq_len = data.shape[0]
+        pad_len = (patch_len - seq_len % patch_len) % patch_len
+        if seq_len % patch_len != 0:
+            data = np.concatenate((np.zeros((pad_len, 1)), data), axis=0)
+        
+        # 在data前面挤压一维，变成[1, L, 1]
+        data = data[np.newaxis, :, :]  # [1, seq_len + pad_len, 1]
+        data = torch.tensor(data, dtype=torch.float32).to(self.device)
+        inference_steps = pred_len // patch_len
+        dis = inference_steps * patch_len - pred_len
+        if dis != 0:
+            inference_steps += 1
+            dis = dis + patch_len
+        
+        # encoder - decoder
+        self.model.eval()
+        with torch.no_grad():
+            for j in range(inference_steps):
+                if self.args.output_attention:
+                    outputs, attns = self.model(data, None, None, None)
+                else:
+                    outputs = self.model(data, None, None, None)
+                data = torch.cat([data, outputs[:, -patch_len:, :]], dim=1)
+        
+        outputs = torch.cat([data[:, :patch_len, :], outputs], dim=1)
+        if dis != 0:
+            data = data[:, :-dis, :]
+            outputs = outputs[:, :-dis, :]
+        
+        data = data.detach().cpu().numpy()
+        
+        data = data.squeeze(0)  # [seq_len + pad_len + pred_len, 1]
+        
+        pred_data = data[pad_len:, 0]
+        return pred_data
 

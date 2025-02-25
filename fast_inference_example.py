@@ -156,11 +156,6 @@ label_list = inference_data[index][1].tolist()
 sample = list_to_input_array(sample_list)
 label = list_to_input_array(label_list)
 
-outputs = exp.inference(data=sample)
+outputs = exp.fast_inference(data=sample)
 
 predict_outputs = output_tensor_to_list(outputs)
-
-
-
-import pdb
-pdb.set_trace()
