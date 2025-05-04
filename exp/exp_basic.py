@@ -1,6 +1,6 @@
 import os
 import torch
-from models import Timer
+from models import Timer, PatchTST
 
 
 class Exp_Basic(object):
@@ -8,6 +8,7 @@ class Exp_Basic(object):
         self.args = args
         self.model_dict = {
             'Timer': Timer,
+            'PatchTST': PatchTST, 
         }
         if self.args.use_multi_gpu:
             self.model = self._build_model()

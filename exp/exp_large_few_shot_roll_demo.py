@@ -254,6 +254,7 @@ class Exp_Large_Few_Shot_Roll_Demo(Exp_Basic):
             # 在data前面挤压一维，变成[1, L, 1]
             data = data[np.newaxis, :, :] # [1, seq_len + pad_len, 1]
             data = torch.tensor(data, dtype=torch.float32).to(self.device)
+            print(f"data shape:{data.shape}")
             inference_steps = pred_len // patch_len
             dis = inference_steps * patch_len - pred_len
             if dis != 0:

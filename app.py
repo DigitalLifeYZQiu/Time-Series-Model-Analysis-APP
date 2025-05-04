@@ -13,11 +13,12 @@ from test_inference import test_inference
 from exceptions import MineException
 from exp.exp_large_few_shot_roll_demo import Exp_Large_Few_Shot_Roll_Demo
 import altair as alt
+import copy
 
+# ! Note: Name model label by ${model_name}_${seq_len}_${pred_len}
 model_list={
-    'Timer1': '/data/qiuyunzhong/CKPT/Timer_forecast_1.0.ckpt',
-    'Timer-UTSD': '/data/qiuyunzhong/CKPT/Building_timegpt_d1024_l8_p96_n64_new_full.ckpt',
-    'Timer-LOTSA': '/data/qiuyunzhong/CKPT/Large_timegpt_d1024_l8_p96_n64_new_full.ckpt'
+    'P_90_15': 'ckpt_default/long_term_forecast_ETTh1_sl90_pl15_PatchTST_ETTh1_ftMS_sl90_ll48_pl15_dm512_nh8_el3_dl1_df1024_expand2_dc4_fc3_ebtimeF_dtTrue_test_0/checkpoint.pth',
+    'P_180_15': 'ckpt_default/long_term_forecast_ETTh1_sl180_pl15_PatchTST_ETTh1_ftMS_sl180_ll48_pl15_dm512_nh8_el3_dl1_df1024_expand2_dc4_fc3_ebtimeF_dtTrue_test_0/checkpoint.pth'
 }
 
 '''
@@ -26,44 +27,76 @@ load checkpoint once
 parser = argparse.ArgumentParser(description='TimesNet')
 
 # basic config
-parser.add_argument('--task_name', type=str, default='large_finetune')
+parser.add_argument('--task_name', type=str, default='long_term_forecast')
 parser.add_argument('--seed', type=int, default=0)
 parser.add_argument('--model', type=str, default='Timer')
 parser.add_argument('--ckpt_path', type=str, default='checkpoints/Building_timegpt_d1024_l8_p96_n64_new_full.ckpt')
 
 # model define
-parser.add_argument('--patch_len', type=int, default=96)
+parser.add_argument('--patch_len', type=int, default=15)
 parser.add_argument('--d_model', type=int, default=1024, help='dimension of model')
-parser.add_argument('--n_heads', type=int, default=16, help='num of heads')
+parser.add_argument('--n_heads', type=int, default=8, help='num of heads')
 parser.add_argument('--e_layers', type=int, default=8, help='num of encoder layers')
+parser.add_argument('--d_layers', type=int, default=1, help='num of decoder layers')
 parser.add_argument('--d_ff', type=int, default=2048, help='dimension of fcn')
 parser.add_argument('--factor', type=int, default=3, help='attn factor')
 parser.add_argument('--dropout', type=float, default=0.1, help='dropout')
 parser.add_argument('--activation', type=str, default='gelu', help='activation')
 parser.add_argument('--output_attention', action='store_true')
+parser.add_argument('--seq_len', type=int, default=96, help='input sequence length')
+parser.add_argument('--label_len', type=int, default=48, help='start token length')
+parser.add_argument('--pred_len', type=int, default=96, help='prediction sequence length')
+parser.add_argument('--enc_in', type=int, default=1, help='encoder input size')
+parser.add_argument('--dec_in', type=int, default=1, help='decoder input size')
+parser.add_argument('--c_out', type=int, default=1, help='output size')
+parser.add_argument('--stride', type=int, default=15, help='stride')
+
 # GPU
-parser.add_argument('--use_gpu', type=bool, default=True, help='use gpu')
+parser.add_argument('--use_gpu', type=bool, default=False, help='use gpu')
 parser.add_argument('--gpu', type=int, default=0, help='gpu')
 parser.add_argument('--use_multi_gpu', action='store_true', help='use multiple gpus', default=False)
 parser.add_argument('--devices', type=str, default='0,1,2,3', help='device ids of multile gpus')
 
 
 args = parser.parse_args()
+args.model = 'PatchTST'
+args.patch_len= 15
+args.stride = 15
+args.seq_len = 90
+args.label_len = 48
+args.pred_len = 15
+args.e_layers = 3
+args.d_model = 512
+args.d_ff = 1024
 fix_seed = args.seed
 random.seed(fix_seed)
 torch.manual_seed(fix_seed)
 np.random.seed(fix_seed)
-# * Change default model loading directory
-# args.ckpt_path = '/data/qiuyunzhong/CKPT/Timer_forecast_1.0.ckpt'
 args.ckpt_path='random'
 exp = Exp_Large_Few_Shot_Roll_Demo(args)
+print(f"args.seq_len={args.seq_len}, args.pred_len={args.pred_len}")
+# args = parser.parse_args()
+# args.model = 'PatchTST'
+# args.seq_len = 180
+# args.label_len = 48
+# args.pred_len = 15
+# args.e_layers = 3
+# args.d_model = 512
+# args.d_ff = 1024
+# args.label_len
+# exp = Exp_Large_Few_Shot_Roll_Demo(args)
 
 def update_model_selection(choice):
     args.ckpt_path=model_list.get(choice)
-    # exp = Exp_Large_Few_Shot_Roll_Demo(args)
+    
     print("model selection:", choice)
     print("ckpt path:",args.ckpt_path)
-    return f"load model {choice} from directory {model_list.get(choice)}"
+    args.seq_len = int(choice.split("_")[1])
+    args.pred_len = int(choice.split("_")[2])
+    exp = Exp_Large_Few_Shot_Roll_Demo(args)
+    print(f"seq_len={args.seq_len}, pred_len={args.pred_len}")
+    return f"load model {choice} from directory {model_list.get(choice)}", args.seq_len, args.pred_len
+
 
 def load_data(temp_file,progress=gr.Progress()):
     '''
@@ -166,7 +199,9 @@ def inference_plotly_fast(choice,start_index,length_index,pred_len,show_GT,model
         args.ckpt_path=args.ckpt_path=model_list.get(model_choice)
     else:
         args.ckpt_path=model_choice
+
     exp = Exp_Large_Few_Shot_Roll_Demo(args)
+
     if start_index<0 or start_index>length-1:
         raise MineException("起始位置错误")
     if length_index<0:
@@ -204,40 +239,10 @@ def inference_plotly_fast(choice,start_index,length_index,pred_len,show_GT,model
         fig.update_layout(title='Two Line Plots', xaxis_title='Timepoint', yaxis_title='{} value'.format(choice))
     return result_dir,fig
 
-# '''
-# This is older version -- begin
-# '''
-# # 文件夹路径
-# folder_path = 'test_results/large_finetune_2G_{672}_{96}_{96}__Timer_ETTh1_ftM_sl672_ll576_pl96_dm1024_nh8_el8_dl1_df2048_fc3_ebtimeF_dtTrue_Exp24-04-10_20-04-02/ETTh1.csv/96/'
-
-# # 列出文件夹中的所有 .npz 文件
-# file_list = [f for f in os.listdir(folder_path) if f.endswith('.npz')]
-
-# def visual(number, true, preds=None):
-#     """
-#     Results visualization
-#     """
-#     fig = plt.figure()
-#     if preds is not None:
-#         plt.plot(preds, label='Prediction', c='dodgerblue', linewidth=2)
-#     plt.plot(true, label='GroundTruth', c='tomato', linewidth=2)
-#     plt.title("number {} of {}".format(number,len(file_list)))
-#     plt.legend(loc='upper left')
-#     return fig
-
-
-# def draw_all():
-#     for i in range(len(file_list)):
-#         time.sleep(1)
-#         file_path = os.path.join(folder_path,file_list[i])
-#         with np.load(file_path) as data:
-#             groundtruth = data['groundtruth']
-#             predict = data['predict']
-#         image = visual(i+1, groundtruth, predict)
-#         yield image
-# '''
-# This is older version -- end
-# '''
+def getIOlen(seq_len, pred_len):
+    return seq_len, pred_len
+    
+    
 
 
 '''
@@ -263,26 +268,52 @@ with gr.Blocks() as demo:
 
         gr.Markdown("# 目标变量推理")
         gr.Markdown("请指定目标变量分析范围起始位置与终止位置，并给出想要预测的长度。准备妥当后，点击按钮进行推理。推理结果将在图中展示。")
+        gr.Markdown("当使用 PatchTST 时，仅可指定起始位置，输入长度为模型seq_len，输出长度为模型pred_len。更换模型后输入长度与推理长度将**自动更新**。")
         with gr.Row():
             start = gr.Textbox(value=0,label="起始位置")
-            length = gr.Textbox(value=1000,label="输入长度")
-            pred = gr.Textbox(value=1000,label="推理长度")
+            length = gr.Textbox(value=90,label="输入长度")
+            pred = gr.Textbox(value=15,label="推理长度")
             show_GT = gr.Checkbox(value=True,label="选中以展示真值")
+
+            # start.change(
+            #     fn = getIOlen,
+            #     inputs=[args.seq_len, args.pred_len],
+            #     outputs = [length, pred]
+            # )
         
-        gr.Markdown("# 模型选择")
-        gr.Markdown("## 目前支持的模型\n - Timer1\n - Timer-UTSD\n - Timer-LOTSA")
-        model_selection=gr.Dropdown(choices=list(model_list.keys()),allow_custom_value=True,interactive=True,value='random',label="请选择内置模型")
-        model_selection_text = gr.Textbox(label="模型选择结果")
-        model_selection.change(fn=update_model_selection, inputs=[model_selection], outputs=model_selection_text)
+        # gr.Markdown("# Timer 模型选择")
+        # gr.Markdown("## 目前支持的模型\n - Timer1\n - Timer-UTSD\n - Timer-LOTSA")
+        # model_selection=gr.Dropdown(choices=list(model_list.keys()),allow_custom_value=True,interactive=True,value='random',label="请选择内置模型")
+        # model_selection_text = gr.Textbox(label="模型选择结果")
+        # model_selection.change(fn=update_model_selection, inputs=[model_selection], outputs=model_selection_text)
+        
+        # inference_button = gr.Button(value="Timer进行推理")
+        # result_dir = gr.Textbox(label="结果文件位置")
+        # result_img = gr.Plot(label="推理结果可视化")
+        # inference_button.click(
+        #     fn=inference_plotly_fast,
+        #     inputs=[plot_target, start, length, pred, show_GT, model_selection],
+        #     outputs=[result_dir, result_img]
+        # )
+        
+        gr.Markdown("# PatchTST 模型选择")
+        gr.Markdown("## 目前支持的模型\n "
+                    "- PatchTST1: P_90_15\n" \
+                    "- PatchTST2: P_180_15\n "
+                    "- PatchTST3: Other PatchTST Checkpoint")
+        patch_model_selection = gr.Dropdown(choices=list(model_list.keys()), allow_custom_value=True, interactive=True,
+                                      value='random', label="请选择内置模型")
+        patch_model_selection_text = gr.Textbox(label="模型选择结果")
+        patch_model_selection.change(fn=update_model_selection, inputs=[patch_model_selection], outputs=[patch_model_selection_text, length, pred])
 
         
-        inference_button = gr.Button(value = "进行推理")
-        result_dir = gr.Textbox(label="结果文件位置")
-        result_img = gr.Plot(label="推理结果可视化")
-        inference_button.click(
+        patch_inference_button = gr.Button(value = "PatchTST进行推理")
+        patch_result_dir = gr.Textbox(label="结果文件位置")
+        patch_result_img = gr.Plot(label="推理结果可视化")
+        patch_inference_button.click(
             fn=inference_plotly_fast,
-            inputs=[plot_target,start,length,pred,show_GT,model_selection],
-            outputs=[result_dir,result_img]
+            inputs=[plot_target,start,length,pred,show_GT,patch_model_selection],
+            outputs=[patch_result_dir,patch_result_img]
         )
 
     # with gr.Tab("可视化展示"):
