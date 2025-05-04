@@ -23,6 +23,7 @@ class FlattenHead(nn.Module):
 
     def forward(self, x):  # x: [bs x nvars x d_model x patch_num]
         x = self.flatten(x)
+        # print(f"x before linear shape: {x.shape}")
         x = self.linear(x)
         x = self.dropout(x)
         return x
@@ -40,8 +41,11 @@ class Model(nn.Module):
         """
         super().__init__()
         self.task_name = configs.task_name
+        self.ckpt_path = configs.ckpt_path
         self.seq_len = configs.seq_len
         self.pred_len = configs.pred_len
+        patch_len = configs.patch_len
+        stride = configs.stride
         padding = stride
 
         # patching and embedding
@@ -67,6 +71,8 @@ class Model(nn.Module):
         # Prediction Head
         self.head_nf = configs.d_model * \
                        int((configs.seq_len - patch_len) / stride + 2)
+        print(f"self.stride={stride}")
+        print(f"self.head_nf={self.head_nf}")
         if self.task_name == 'long_term_forecast' or self.task_name == 'short_term_forecast':
             self.head = FlattenHead(configs.enc_in, self.head_nf, configs.pred_len,
                                     head_dropout=configs.dropout)
@@ -78,6 +84,22 @@ class Model(nn.Module):
             self.dropout = nn.Dropout(configs.dropout)
             self.projection = nn.Linear(
                 self.head_nf * configs.enc_in, configs.num_class)
+        if self.ckpt_path != '':
+            if self.ckpt_path == 'random':
+                print('loading model randomly')
+            else:
+                print('loading model: ', self.ckpt_path)
+                # 如果是pth格式：
+                if self.ckpt_path.endswith('.pth'):
+                    self.load_state_dict(torch.load(self.ckpt_path,map_location="cpu"))
+                # 如果是ckpt格式：
+                elif self.ckpt_path.endswith('.ckpt'):
+                    sd = torch.load(self.ckpt_path, map_location="cpu")["state_dict"]
+                    sd = {k[6:]: v for k, v in sd.items()}
+                    self.load_state_dict(sd, strict=True)
+
+                else:
+                    raise NotImplementedError
 
     def forecast(self, x_enc, x_mark_enc, x_dec, x_mark_dec):
         # Normalization from Non-stationary Transformer
